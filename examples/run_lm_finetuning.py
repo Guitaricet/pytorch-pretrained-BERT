@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 
 
+
 #TODO: check separation of documents (in original tf repo: empty row).
 # Use only sentences of the same document for nextSentence task (?)
 class BERTDataset(Dataset):
