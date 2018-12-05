@@ -44,7 +44,6 @@ logger = logging.getLogger(__name__)
 
 
 
-
 #TODO: check separation of documents (in original tf repo: empty row).
 # Use only sentences of the same document for nextSentence task (?)
 class BERTDataset(Dataset):
@@ -67,16 +66,12 @@ class BERTDataset(Dataset):
                     self.corpus_lines += 1
 
             if on_memory:
-                self.lines = [line[:-1].split("\t")
-                              for line in tqdm.tqdm(f, desc="Loading Dataset", total=corpus_lines)]
+                self.lines = [line for line in tqdm.tqdm(f, desc="Loading Dataset", total=corpus_lines) if line != ""]
                 self.corpus_lines = len(self.lines)
 
         if not on_memory:
             self.file = open(corpus_path, "r", encoding=encoding)
             self.random_file = open(corpus_path, "r", encoding=encoding)
-
-        #     for _ in range(random.randint(self.corpus_lines if self.corpus_lines < 1000 else 1000)):
-        #         self.random_file.__next__()
 
     def __len__(self):
         # -1 because we use pairs of two lines as one example
@@ -85,6 +80,11 @@ class BERTDataset(Dataset):
     def __getitem__(self, item):
         cur_id = self.id_counter
         self.id_counter += 1
+        #after one epoch we start again from beginning of file
+        if cur_id != 0 and (cur_id % (self.corpus_lines-1) == 0):
+            self.file.close()
+            self.file = open(self.corpus_path, "r", encoding=self.encoding)
+
         t1, t2, is_next_label = self.random_sent(item)
 
         #tokenize
@@ -122,46 +122,56 @@ class BERTDataset(Dataset):
         return t1, t2, label
 
     def get_corpus_line(self, item):
+        t1 = ""
+        t2 = ""
         assert item < self.corpus_lines
         if self.on_memory:
             t1 = self.lines[item]
             t2 = self.lines[item+1]
             return t1, t2
         else:
-            #TODO: correct the comb. of lines here. For now only dirty fix to test whole pipeline
             if self.line_buffer is None:
-                #first line of file
-                t1 = self.file.__next__()
+                #read first non-empty line of file
+                while t1 == "" :
+                    t1 = self.file.__next__().strip()
             else:
                 #use t2 from previous iteration as new t1
                 t1 = self.line_buffer
 
-            t2 = self.file.__next__()
+            #skip empty rows
+            while t2 == "":
+                t2 = self.file.__next__().strip()
             self.line_buffer = t2
 
-
-            # if line is None:
-            #     self.file.close()
-            #     self.file = open(self.corpus_path, "r", encoding=self.encoding)
-            #     line = self.file.__next__()
-
-            #t1, t2 = line[:-1].split("\t")
-            return t1, t2
+        assert t1 != ""
+        assert t2 != ""
+        return t1, t2
 
     def get_random_line(self):
         if self.on_memory:
-            return self.lines[random.randrange(len(self.lines))]
+            while line == "":
+                line = self.lines[random.randrange(len(self.lines))]
+            return line
 
         rand_index = random.randint(1, self.corpus_lines if self.corpus_lines < 1000 else 1000)
+        #pick random line
         for _ in range(rand_index):
-            try:
-                line = self.random_file.__next__()
-            except StopIteration:
-                self.random_file.close()
-                self.random_file = open(self.corpus_path, "r", encoding=self.encoding)
-                line = self.random_file.__next__()
+            line = self.get_next_line()
+        #if random line is empty, go forward to next non-empty one
+        while line == "":
+            line = self.get_next_line()
         return line
 
+
+    def get_next_line(self):
+        """ Gets next line of random_file and starts over when reaching end of file"""
+        try:
+            line = self.random_file.__next__().strip()
+        except StopIteration:
+            self.random_file.close()
+            self.random_file = open(self.corpus_path, "r", encoding=self.encoding)
+            line = self.random_file.__next__().strip()
+        return line
 
 
 class InputExample(object):
@@ -221,8 +231,8 @@ def random_word(tokens, tokenizer):
                 #For unknown words (should not occur with BPE vocab)
                 output_label.append(tokenizer.vocab["[UNK]"])
         else:
-            #no masking token (resolved to ID 0 later)
-            output_label.append(0)
+            #no masking token (will be ignored by loss function later)
+            output_label.append(-1)
 
     return tokens, output_label
 
@@ -238,7 +248,7 @@ def convert_example_to_features(example, max_seq_length, tokenizer):
     t1_random, t1_label = random_word(tokens_a, tokenizer)
     t2_random, t2_label = random_word(tokens_b, tokenizer)
     #concatenate lm labels and account for CLS, SEP, SEP
-    lm_label_ids = ([0] + t1_label + [0] + t2_label + [0])
+    lm_label_ids = ([-1] + t1_label + [-1] + t2_label + [-1])
 
     # The convention in BERT is:
     # (a) For sequence pairs:
@@ -286,7 +296,7 @@ def convert_example_to_features(example, max_seq_length, tokenizer):
         input_ids.append(0)
         input_mask.append(0)
         segment_ids.append(0)
-        lm_label_ids.append(0)
+        lm_label_ids.append(-1)
 
     assert len(input_ids) == max_seq_length
     assert len(input_mask) == max_seq_length
@@ -362,7 +372,7 @@ def main():
                         type=int,
                         help="Total batch size for eval.")
     parser.add_argument("--learning_rate",
-                        default=5e-5,
+                        default=3e-5,
                         type=float,
                         help="The initial learning rate for Adam.")
     parser.add_argument("--num_train_epochs",
@@ -494,12 +504,9 @@ def main():
 
         model.train()
         for _ in trange(int(args.num_train_epochs), desc="Epoch"):
-            logger.info("New epoch")
             tr_loss = 0
             nb_tr_examples, nb_tr_steps = 0, 0
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
-                if step == 15:
-                    print("some")
                 batch = tuple(t.to(device) for t in batch.values())
                 input_ids, input_mask, segment_ids, lm_label_ids, is_next = batch
                 loss = model(input_ids, segment_ids, input_mask, lm_label_ids, is_next)
@@ -533,6 +540,13 @@ def main():
                         optimizer.step()
                     model.zero_grad()
                     global_step += 1
+
+        logger.info("** ** * Saving fine - tuned model ** ** * ")
+        output_model_file = os.path.join(args.output_dir, "pytorch_model.bin")
+        if n_gpu > 1:
+            torch.save(model.module.bert.state_dict(), output_model_file)
+        else:
+            torch.save(model.bert.state_dict(), output_model_file)
 
     if args.do_eval:
         eval_examples = processor.get_dev_examples(args.data_dir)
@@ -654,10 +668,6 @@ def test():
     train_dataloader = DataLoader(train_dataset, batch_size=12)
     for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
         a = 1
-
-    #for i in range(200):
-    #    a = train_dataset.__getitem__(i)
-    #    print(a)
 
 if __name__ == "__main__":
     #test()
