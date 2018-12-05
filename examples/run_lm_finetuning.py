@@ -108,14 +108,11 @@ class BERTDataset(Dataset):
 
     def random_sent(self, index):
         t1, t2 = self.get_corpus_line(index)
-
-        # output_text, label(isNotNext:0, isNext:1)
-        #TODO: readme from huggingface says label=1 means random sentence. codertimo did it the other way around. what did google?
         if random.random() > 0.5:
-            label = 1
+            label = 0
         else:
             t2 = self.get_random_line()
-            label = 0
+            label = 1
 
         assert len(t1) > 0
         assert len(t2) > 0
