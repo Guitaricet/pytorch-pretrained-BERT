@@ -480,6 +480,11 @@ def main():
                         type=float, default=128,
                         help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
 
+    parser.add_argument('--do_lower_case',
+                        default=False,
+                        action='store_true',
+                        help='Set this flag if you are using an uncased model.')
+
     args = parser.parse_args()
 
     if args.local_rank == -1 or args.no_cuda:
@@ -514,7 +519,7 @@ def main():
         raise ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir))
     os.makedirs(args.output_dir, exist_ok=True)
 
-    tokenizer = BertTokenizer.from_pretrained(args.bert_model)
+    tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
     #train_examples = None
     num_train_steps = None
