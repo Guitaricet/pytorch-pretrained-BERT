@@ -576,7 +576,7 @@ def main():
         train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size)
 
         model.train()
-        for _ in trange(int(args.num_train_epochs), desc="Epoch"):
+        for epoch in trange(int(args.num_train_epochs), desc="Epoch"):
             tr_loss = 0
             nb_tr_examples, nb_tr_steps = 0, 0
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
@@ -614,12 +614,12 @@ def main():
                     model.zero_grad()
                     global_step += 1
 
-        logger.info("** ** * Saving fine - tuned model ** ** * ")
-        output_model_file = os.path.join(args.output_dir, "pytorch_model.bin")
-        if n_gpu > 1:
-            torch.save(model.module.bert.state_dict(), output_model_file)
-        else:
-            torch.save(model.bert.state_dict(), output_model_file)
+            logger.info("** ** * Saving fine - tuned model ** ** * ")
+            output_model_file = os.path.join(args.output_dir, f"pytorch_model_epoch{epoch}.bin")
+            if n_gpu > 1:
+                torch.save(model.module.bert.state_dict(), output_model_file)
+            else:
+                torch.save(model.bert.state_dict(), output_model_file)
 
 
 def _truncate_seq_pair(tokens_a, tokens_b, max_length):
