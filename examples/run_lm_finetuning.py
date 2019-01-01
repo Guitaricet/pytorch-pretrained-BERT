@@ -116,6 +116,9 @@ class BERTDataset(Dataset):
         # tokenize
         tokens_a = self.tokenizer.tokenize(t1)
         tokens_b = self.tokenizer.tokenize(t2)
+        if len(tokens_b) == 0:
+            logger.warning('No tokens after tokenization!')
+            logger.warning(f'Original sentence: {t2}')
 
         # combine to one sample
         cur_example = InputExample(guid=cur_id, tokens_a=tokens_a, tokens_b=tokens_b, is_next=is_next_label)
@@ -353,12 +356,14 @@ def convert_example_to_features(example, max_seq_length, tokenizer):
     tokens.append("[SEP]")
     segment_ids.append(0)
 
-    assert len(tokens_b) > 0
-    for token in tokens_b:
-        tokens.append(token)
+    if len(tokens_b) > 0:
+        for token in tokens_b:
+            tokens.append(token)
+            segment_ids.append(1)
+        tokens.append("[SEP]")
         segment_ids.append(1)
-    tokens.append("[SEP]")
-    segment_ids.append(1)
+    else:
+        logger.warning('No second sentence!')
 
     input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
