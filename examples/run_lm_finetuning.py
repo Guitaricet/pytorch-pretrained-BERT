@@ -118,7 +118,8 @@ class BERTDataset(Dataset):
         tokens_b = self.tokenizer.tokenize(t2)
         if len(tokens_b) == 0:
             logger.warning('No tokens after tokenization!')
-            logger.warning(f'Original sentence: {t2}')
+            logger.warning(f'Original sentence: {repr(t2)}')
+            logger.warning(f'Original sentence char length: {len(t2)}')
 
         # combine to one sample
         cur_example = InputExample(guid=cur_id, tokens_a=tokens_a, tokens_b=tokens_b, is_next=is_next_label)
